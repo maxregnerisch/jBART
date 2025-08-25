@@ -1,7 +1,9 @@
 package com.maxregner.oneui.porter.core;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -244,12 +246,33 @@ public class PortingManager {
                 tempDir.mkdirs();
             }
             
-            // Use unzip command to extract build.prop
+            // Check if 7z.exe exists in the current directory
+            File sevenZipExe = new File("7z.exe");
+            String sevenZipPath;
+            
+            if (sevenZipExe.exists()) {
+                sevenZipPath = sevenZipExe.getAbsolutePath();
+                LogManager.info("Using 7z.exe from current directory: " + sevenZipPath);
+            } else {
+                // Try to find 7z in the system path
+                sevenZipPath = "7z";
+                LogManager.info("7z.exe not found in current directory, using system 7z");
+            }
+            
+            // Use 7z command to extract build.prop
             ProcessBuilder pb = new ProcessBuilder(
-                "unzip", "-j", romFile.getAbsolutePath(), "system/build.prop", "-d", tempDir.getAbsolutePath()
+                sevenZipPath, "e", romFile.getAbsolutePath(), "system/build.prop", "-o" + tempDir.getAbsolutePath(), "-y"
             );
             pb.redirectErrorStream(true);
             Process process = pb.start();
+            
+            // Read the output
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    LogManager.info(line);
+                }
+            }
             
             // Wait for the process to complete
             int exitCode = process.waitFor();
@@ -296,18 +319,39 @@ public class PortingManager {
                 tempDir.mkdirs();
             }
             
-            // Use tar command to extract build.prop
+            // Check if 7z.exe exists in the current directory
+            File sevenZipExe = new File("7z.exe");
+            String sevenZipPath;
+            
+            if (sevenZipExe.exists()) {
+                sevenZipPath = sevenZipExe.getAbsolutePath();
+                LogManager.info("Using 7z.exe from current directory: " + sevenZipPath);
+            } else {
+                // Try to find 7z in the system path
+                sevenZipPath = "7z";
+                LogManager.info("7z.exe not found in current directory, using system 7z");
+            }
+            
+            // Use 7z command to extract build.prop
             ProcessBuilder pb = new ProcessBuilder(
-                "tar", "-xf", romFile.getAbsolutePath(), "-C", tempDir.getAbsolutePath(), "system/build.prop"
+                sevenZipPath, "e", romFile.getAbsolutePath(), "system/build.prop", "-o" + tempDir.getAbsolutePath(), "-y"
             );
             pb.redirectErrorStream(true);
             Process process = pb.start();
+            
+            // Read the output
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    LogManager.info(line);
+                }
+            }
             
             // Wait for the process to complete
             int exitCode = process.waitFor();
             
             // Check if build.prop was extracted
-            File buildPropFile = new File(tempDir, "system/build.prop");
+            File buildPropFile = new File(tempDir, "build.prop");
             if (buildPropFile.exists()) {
                 // Parse build.prop to get ROM information
                 parseBuildProp(buildPropFile, romInfo);
@@ -319,7 +363,6 @@ public class PortingManager {
             
             // Clean up
             buildPropFile.delete();
-            new File(tempDir, "system").delete();
             tempDir.delete();
         } catch (Exception e) {
             LogManager.error("Error analyzing TAR ROM file", e);
@@ -516,25 +559,70 @@ public class PortingManager {
         File outputRomFile = new File(outputDir, "ported_rom.zip");
         
         try {
-            // Create a ZIP file from the output ROM directory
+            // Check if 7z.exe exists in the current directory
+            File sevenZipExe = new File("7z.exe");
+            String sevenZipPath;
+            
+            if (sevenZipExe.exists()) {
+                sevenZipPath = sevenZipExe.getAbsolutePath();
+                LogManager.info("Using 7z.exe from current directory: " + sevenZipPath);
+            } else {
+                // Try to find 7z in the system path
+                sevenZipPath = "7z";
+                LogManager.info("7z.exe not found in current directory, using system 7z");
+            }
+            
+            // Use 7z command to create a ZIP file
             ProcessBuilder pb = new ProcessBuilder(
-                "zip", "-r", outputRomFile.getAbsolutePath(), "."
+                sevenZipPath, "a", "-tzip", outputRomFile.getAbsolutePath(), outputRomDir.getAbsolutePath() + "/*"
             );
-            pb.directory(outputRomDir);
+            pb.directory(outputDir);
             pb.redirectErrorStream(true);
             Process process = pb.start();
             
+            // Read the output
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    LogManager.info(line);
+                }
+            }
+            
             // Wait for the process to complete
             int exitCode = process.waitFor();
-            LogManager.info("Zip process exit code: " + exitCode);
+            LogManager.info("7z process exit code: " + exitCode);
             
             if (exitCode != 0) {
-                throw new IOException("Failed to create output ROM file");
+                // Fallback to using zip command if 7z fails
+                LogManager.info("7z failed, falling back to zip command");
+                
+                ProcessBuilder zipPb = new ProcessBuilder(
+                    "zip", "-r", outputRomFile.getAbsolutePath(), "."
+                );
+                zipPb.directory(outputRomDir);
+                zipPb.redirectErrorStream(true);
+                Process zipProcess = zipPb.start();
+                
+                // Read the output
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(zipProcess.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        LogManager.info(line);
+                    }
+                }
+                
+                // Wait for the process to complete
+                int zipExitCode = zipProcess.waitFor();
+                LogManager.info("Zip process exit code: " + zipExitCode);
+                
+                if (zipExitCode != 0) {
+                    throw new IOException("Failed to create output ROM file");
+                }
             }
             
             return outputRomFile;
         } catch (InterruptedException e) {
-            throw new IOException("Zip process interrupted", e);
+            throw new IOException("Compression process interrupted", e);
         }
     }
     
