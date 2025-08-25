@@ -12,4 +12,5 @@ com/maxregner/oneui/porter/core/PortingManager.class
 com/maxregner/oneui/porter/Main.class
 com/maxregner/oneui/porter/utils/LogManager.class
 com/maxregner/oneui/porter/core/model/RomInfo$RomType.class
+com/maxregner/oneui/porter/utils/LogManager$LogListener.class
 com/maxregner/oneui/porter/core/partitions/PartitionExtractor.class
