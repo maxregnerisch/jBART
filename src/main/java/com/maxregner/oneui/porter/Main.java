@@ -1,42 +1,43 @@
 package com.maxregner.oneui.porter;
 
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+
 import com.maxregner.oneui.porter.gui.MainWindow;
 import com.maxregner.oneui.porter.utils.LogManager;
 
 /**
- * MaxRegner OneUI Porter v7.0
- * A modern tool for porting between OneUI 7 ROMs on Android 15
- * 
- * @author MaxRegner
- * @version 7.0
+ * Main class for the MaxRegner OneUI Porter application
  */
 public class Main {
     
     private static final String APP_NAME = "MaxRegner OneUI Porter";
-    private static final String APP_VERSION = "7.0";
+    private static final String APP_VERSION = "7.1";
     
+    /**
+     * Main method
+     * 
+     * @param args Command line arguments
+     */
     public static void main(String[] args) {
         // Initialize logging
         LogManager.init();
         LogManager.info("Starting " + APP_NAME + " v" + APP_VERSION);
         
-        // Check for required tools and dependencies
-        checkDependencies();
+        // Set look and feel
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            LogManager.info("Set system look and feel");
+        } catch (Exception e) {
+            LogManager.error("Failed to set system look and feel", e);
+        }
         
-        // Launch the GUI
-        javax.swing.SwingUtilities.invokeLater(() -> {
+        // Create and show the main window
+        SwingUtilities.invokeLater(() -> {
             MainWindow mainWindow = new MainWindow(APP_NAME, APP_VERSION);
             mainWindow.setVisible(true);
+            LogManager.info("Main window created and shown");
         });
-    }
-    
-    private static void checkDependencies() {
-        LogManager.info("Checking for required dependencies...");
-        // TODO: Implement dependency checking for required tools
-        // - ADB
-        // - Fastboot
-        // - Java version
-        // - Required libraries
     }
 }
 
