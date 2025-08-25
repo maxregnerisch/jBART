@@ -48,11 +48,22 @@ public class PartitionExtractor {
             outputDir.mkdirs();
         }
         
-        // Extract the payload.bin file from the OTA package
-        File payloadFile = extractPayloadFromZip(otaFile, outputDir);
+        // Extract system, vendor, and product folders directly
+        extractFoldersFromZip(otaFile, outputDir);
         
-        // Extract partitions from the payload.bin file
-        return extractFromPayload(payloadFile, outputDir);
+        // Create placeholder partition files for compatibility
+        List<File> partitionFiles = new ArrayList<>();
+        for (String partitionName : new String[]{"system", "vendor", "product"}) {
+            File partitionDir = new File(outputDir, partitionName);
+            if (partitionDir.exists() && partitionDir.isDirectory()) {
+                File partitionFile = new File(outputDir, partitionName + ".img");
+                // Create an empty file as a placeholder
+                partitionFile.createNewFile();
+                partitionFiles.add(partitionFile);
+            }
+        }
+        
+        return partitionFiles;
     }
     
     /**
@@ -71,25 +82,33 @@ public class PartitionExtractor {
             outputDir.mkdirs();
         }
         
-        // Extract the firmware file
-        File extractedDir = extractTarMd5(firmwareFile, outputDir);
+        // Extract system, vendor, and product folders directly
+        extractFoldersFromTarMd5(firmwareFile, outputDir);
         
-        // Find and return partition files
-        return findPartitionFiles(extractedDir);
+        // Create placeholder partition files for compatibility
+        List<File> partitionFiles = new ArrayList<>();
+        for (String partitionName : new String[]{"system", "vendor", "product"}) {
+            File partitionDir = new File(outputDir, partitionName);
+            if (partitionDir.exists() && partitionDir.isDirectory()) {
+                File partitionFile = new File(outputDir, partitionName + ".img");
+                // Create an empty file as a placeholder
+                partitionFile.createNewFile();
+                partitionFiles.add(partitionFile);
+            }
+        }
+        
+        return partitionFiles;
     }
     
     /**
-     * Extract payload.bin from a ZIP file
+     * Extract system, vendor, and product folders from a ZIP file
      * 
      * @param zipFile The ZIP file
      * @param outputDir The output directory
-     * @return The extracted payload.bin file
      * @throws IOException If an error occurs
      */
-    private File extractPayloadFromZip(File zipFile, File outputDir) throws IOException {
-        LogManager.info("Extracting payload.bin from ZIP file: " + zipFile.getAbsolutePath());
-        
-        File payloadFile = new File(outputDir, "payload.bin");
+    private void extractFoldersFromZip(File zipFile, File outputDir) throws IOException {
+        LogManager.info("Extracting system, vendor, and product folders from ZIP file: " + zipFile.getAbsolutePath());
         
         try {
             // Check if 7z.exe exists in the current directory
@@ -105,126 +124,29 @@ public class PartitionExtractor {
                 LogManager.info("7z.exe not found in current directory, using system 7z");
             }
             
-            // Use 7z command to extract payload.bin
-            ProcessBuilder pb = new ProcessBuilder(
-                sevenZipPath, "e", zipFile.getAbsolutePath(), "payload.bin", "-o" + outputDir.getAbsolutePath(), "-y"
-            );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
+            // Extract system folder
+            extractFolderWith7z(sevenZipPath, zipFile, "system", outputDir);
             
-            // Read the output
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    LogManager.info(line);
-                }
-            }
+            // Extract vendor folder
+            extractFolderWith7z(sevenZipPath, zipFile, "vendor", outputDir);
             
-            // Wait for the process to complete
-            int exitCode = process.waitFor();
-            LogManager.info("7z process exit code: " + exitCode);
+            // Extract product folder
+            extractFolderWith7z(sevenZipPath, zipFile, "product", outputDir);
             
-            if (exitCode != 0) {
-                throw new IOException("Failed to extract payload.bin from ZIP file");
-            }
-            
-            if (!payloadFile.exists()) {
-                throw new IOException("payload.bin not found in ZIP file");
-            }
-            
-            return payloadFile;
-        } catch (InterruptedException e) {
-            throw new IOException("7z process interrupted", e);
+        } catch (Exception e) {
+            throw new IOException("Error extracting folders from ZIP file", e);
         }
     }
     
     /**
-     * Extract partitions from a payload.bin file
-     * 
-     * @param payloadFile The payload.bin file
-     * @param outputDir The output directory
-     * @return List of extracted partition files
-     * @throws IOException If an error occurs
-     */
-    private List<File> extractFromPayload(File payloadFile, File outputDir) throws IOException {
-        LogManager.info("Extracting partitions from payload.bin: " + payloadFile.getAbsolutePath());
-        
-        List<File> partitionFiles = new ArrayList<>();
-        
-        // Check if payload_dumper_go is available
-        if (toolManager.isToolAvailable("payload_dumper_go")) {
-            // Use payload_dumper_go to extract partitions
-            try {
-                int exitCode = toolManager.runTool("payload_dumper_go", payloadFile.getAbsolutePath(), "-o", outputDir.getAbsolutePath());
-                
-                if (exitCode != 0) {
-                    throw new IOException("Failed to extract partitions from payload.bin");
-                }
-            } catch (InterruptedException e) {
-                throw new IOException("payload_dumper_go process interrupted", e);
-            }
-        } else {
-            // Try to use 7z to extract partitions
-            try {
-                // Check if 7z.exe exists in the current directory
-                File sevenZipExe = new File("7z.exe");
-                String sevenZipPath;
-                
-                if (sevenZipExe.exists()) {
-                    sevenZipPath = sevenZipExe.getAbsolutePath();
-                    LogManager.info("Using 7z.exe from current directory: " + sevenZipPath);
-                } else {
-                    // Try to find 7z in the system path
-                    sevenZipPath = "7z";
-                    LogManager.info("7z.exe not found in current directory, using system 7z");
-                }
-                
-                // Use 7z command to extract partitions
-                ProcessBuilder pb = new ProcessBuilder(
-                    sevenZipPath, "x", payloadFile.getAbsolutePath(), "-o" + outputDir.getAbsolutePath(), "-y"
-                );
-                pb.redirectErrorStream(true);
-                Process process = pb.start();
-                
-                // Read the output
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        LogManager.info(line);
-                    }
-                }
-                
-                // Wait for the process to complete
-                int exitCode = process.waitFor();
-                LogManager.info("7z process exit code: " + exitCode);
-                
-                if (exitCode != 0) {
-                    throw new IOException("Failed to extract partitions from payload.bin");
-                }
-            } catch (InterruptedException e) {
-                throw new IOException("7z process interrupted", e);
-            }
-        }
-        
-        // Find and return partition files
-        return findPartitionFiles(outputDir);
-    }
-    
-    /**
-     * Extract a tar.md5 file
+     * Extract system, vendor, and product folders from a tar.md5 file
      * 
      * @param tarMd5File The tar.md5 file
      * @param outputDir The output directory
-     * @return The directory containing extracted files
      * @throws IOException If an error occurs
      */
-    private File extractTarMd5(File tarMd5File, File outputDir) throws IOException {
-        LogManager.info("Extracting tar.md5 file: " + tarMd5File.getAbsolutePath());
-        
-        File extractedDir = new File(outputDir, "extracted");
-        if (!extractedDir.exists()) {
-            extractedDir.mkdirs();
-        }
+    private void extractFoldersFromTarMd5(File tarMd5File, File outputDir) throws IOException {
+        LogManager.info("Extracting system, vendor, and product folders from tar.md5 file: " + tarMd5File.getAbsolutePath());
         
         try {
             // Check if 7z.exe exists in the current directory
@@ -240,32 +162,63 @@ public class PartitionExtractor {
                 LogManager.info("7z.exe not found in current directory, using system 7z");
             }
             
-            // Use 7z command to extract the tar.md5 file
-            ProcessBuilder pb = new ProcessBuilder(
-                sevenZipPath, "x", tarMd5File.getAbsolutePath(), "-o" + extractedDir.getAbsolutePath(), "-y"
-            );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
+            // Extract system folder
+            extractFolderWith7z(sevenZipPath, tarMd5File, "system", outputDir);
             
-            // Read the output
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    LogManager.info(line);
-                }
+            // Extract vendor folder
+            extractFolderWith7z(sevenZipPath, tarMd5File, "vendor", outputDir);
+            
+            // Extract product folder
+            extractFolderWith7z(sevenZipPath, tarMd5File, "product", outputDir);
+            
+        } catch (Exception e) {
+            throw new IOException("Error extracting folders from tar.md5 file", e);
+        }
+    }
+    
+    /**
+     * Extract a specific folder from an archive using 7z
+     * 
+     * @param sevenZipPath The path to the 7z executable
+     * @param archiveFile The archive file
+     * @param folderName The folder name to extract
+     * @param outputDir The output directory
+     * @throws IOException If an error occurs
+     * @throws InterruptedException If the process is interrupted
+     */
+    private void extractFolderWith7z(String sevenZipPath, File archiveFile, String folderName, File outputDir) throws IOException, InterruptedException {
+        LogManager.info("Extracting " + folderName + " folder from archive: " + archiveFile.getAbsolutePath());
+        
+        // Create the output directory for this folder
+        File folderOutputDir = new File(outputDir, folderName);
+        if (!folderOutputDir.exists()) {
+            folderOutputDir.mkdirs();
+        }
+        
+        // Use 7z command to extract the folder
+        ProcessBuilder pb = new ProcessBuilder(
+            sevenZipPath, "x", archiveFile.getAbsolutePath(), folderName + "/*", "-o" + outputDir.getAbsolutePath(), "-y"
+        );
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        
+        // Read the output
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                LogManager.info(line);
             }
-            
-            // Wait for the process to complete
-            int exitCode = process.waitFor();
-            LogManager.info("7z process exit code: " + exitCode);
-            
-            if (exitCode != 0) {
-                throw new IOException("Failed to extract tar.md5 file");
-            }
-            
-            return extractedDir;
-        } catch (InterruptedException e) {
-            throw new IOException("7z process interrupted", e);
+        }
+        
+        // Wait for the process to complete
+        int exitCode = process.waitFor();
+        LogManager.info("7z process exit code for " + folderName + ": " + exitCode);
+        
+        // Check if the folder was extracted
+        if (!folderOutputDir.exists() || folderOutputDir.list().length == 0) {
+            LogManager.warning(folderName + " folder not found or empty in the archive");
+        } else {
+            LogManager.info("Successfully extracted " + folderName + " folder");
         }
     }
     
@@ -312,8 +265,17 @@ public class PartitionExtractor {
             outputDir.mkdirs();
         }
         
-        // Try to extract using 7z
-        extractUsing7z(partitionFile, outputDir);
+        // For placeholder partition files, the actual content is already in the directory
+        String partitionName = partitionFile.getName().replace(".img", "");
+        File partitionDir = new File(partitionFile.getParentFile(), partitionName);
+        
+        if (partitionDir.exists() && partitionDir.isDirectory()) {
+            LogManager.info("Using existing " + partitionName + " directory instead of extracting from image");
+            copyDirectory(partitionDir, outputDir);
+        } else {
+            // Try to extract using 7z for real partition images
+            extractUsing7z(partitionFile, outputDir);
+        }
     }
     
     /**
@@ -364,89 +326,6 @@ public class PartitionExtractor {
             }
         } catch (InterruptedException e) {
             throw new IOException("7z process interrupted", e);
-        }
-    }
-    
-    /**
-     * Mount a partition image
-     * 
-     * @param partitionFile The partition image file
-     * @param mountPoint The mount point
-     * @throws IOException If an error occurs
-     */
-    private void mountPartition(File partitionFile, File mountPoint) throws IOException {
-        LogManager.info("Mounting partition: " + partitionFile.getAbsolutePath() + " to " + mountPoint.getAbsolutePath());
-        
-        // Create the mount point if it doesn't exist
-        if (!mountPoint.exists()) {
-            mountPoint.mkdirs();
-        }
-        
-        try {
-            // Use mount command to mount the partition
-            ProcessBuilder pb = new ProcessBuilder(
-                "mount", "-o", "loop,ro", partitionFile.getAbsolutePath(), mountPoint.getAbsolutePath()
-            );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            
-            // Read the output
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    LogManager.info(line);
-                }
-            }
-            
-            // Wait for the process to complete
-            int exitCode = process.waitFor();
-            LogManager.info("Mount process exit code: " + exitCode);
-            
-            if (exitCode != 0) {
-                // Try alternative method using 7z
-                LogManager.info("Mount failed, trying to extract using 7z");
-                extractUsing7z(partitionFile, mountPoint);
-            }
-        } catch (InterruptedException e) {
-            throw new IOException("Mount process interrupted", e);
-        }
-    }
-    
-    /**
-     * Unmount a partition
-     * 
-     * @param mountPoint The mount point
-     * @throws IOException If an error occurs
-     */
-    private void unmountPartition(File mountPoint) throws IOException {
-        LogManager.info("Unmounting partition: " + mountPoint.getAbsolutePath());
-        
-        try {
-            // Use umount command to unmount the partition
-            ProcessBuilder pb = new ProcessBuilder(
-                "umount", mountPoint.getAbsolutePath()
-            );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            
-            // Read the output
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    LogManager.info(line);
-                }
-            }
-            
-            // Wait for the process to complete with timeout
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                process.destroy();
-                LogManager.warning("Unmount process timed out, forcing termination");
-            }
-            
-            int exitCode = process.exitValue();
-            LogManager.info("Unmount process exit code: " + exitCode);
-        } catch (InterruptedException e) {
-            throw new IOException("Unmount process interrupted", e);
         }
     }
     

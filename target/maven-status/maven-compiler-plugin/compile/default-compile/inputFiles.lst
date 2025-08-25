@@ -2,8 +2,8 @@
 /tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/core/PortingManager.java
 /tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/Main.java
 /tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/gui/MainWindow.java
-/tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/core/partitions/PartitionManager.java
-/tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/core/partitions/PartitionExtractor.java
 /tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/core/porting/RomPorter.java
+/tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/core/partitions/PartitionExtractor.java
+/tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/core/partitions/PartitionManager.java
 /tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/utils/LogManager.java
 /tmp/maxregnerisch/jBART/src/main/java/com/maxregner/oneui/porter/utils/ExternalToolManager.java
