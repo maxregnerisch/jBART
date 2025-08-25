@@ -1,11 +1,16 @@
 package com.maxregner.oneui.porter.core;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.maxregner.oneui.porter.core.model.RomInfo;
+import com.maxregner.oneui.porter.core.partitions.PartitionExtractor;
 import com.maxregner.oneui.porter.core.partitions.PartitionManager;
+import com.maxregner.oneui.porter.core.porting.RomPorter;
+import com.maxregner.oneui.porter.core.porting.RomPorter.PortingOptions;
+import com.maxregner.oneui.porter.utils.ExternalToolManager;
 import com.maxregner.oneui.porter.utils.LogManager;
 
 /**
@@ -14,6 +19,8 @@ import com.maxregner.oneui.porter.utils.LogManager;
 public class PortingManager {
     
     private PartitionManager partitionManager;
+    private PartitionExtractor partitionExtractor;
+    private ExternalToolManager toolManager;
     private RomInfo sourceRomInfo;
     private RomInfo targetRomInfo;
     private List<PortingListener> listeners;
@@ -22,7 +29,9 @@ public class PortingManager {
      * Constructor
      */
     public PortingManager() {
+        toolManager = new ExternalToolManager();
         partitionManager = new PartitionManager();
+        partitionExtractor = new PartitionExtractor(toolManager);
         listeners = new ArrayList<>();
         LogManager.info("PortingManager initialized");
     }
@@ -147,7 +156,52 @@ public class PortingManager {
             
             // Perform porting operations
             LogManager.info("Performing porting operations");
-            performPorting(sourceExtractDir, targetExtractDir, outputDir, options);
+            RomPorter romPorter = new RomPorter(
+                sourceRomInfo, targetRomInfo, sourceExtractDir, targetExtractDir, 
+                new File(outputDir, "output_rom"), options
+            );
+            
+            // Add porting listener
+            romPorter.addPortingListener(new RomPorter.PortingListener() {
+                @Override
+                public void onPortingStarted() {
+                    LogManager.info("ROM porting started");
+                }
+                
+                @Override
+                public void onPortingProgress(int progress, String message) {
+                    LogManager.info("ROM porting progress: " + progress + "% - " + message);
+                    
+                    // Notify listeners
+                    for (PortingListener listener : listeners) {
+                        listener.onPortingProgress(progress, message);
+                    }
+                }
+                
+                @Override
+                public void onPortingCompleted() {
+                    LogManager.info("ROM porting completed");
+                }
+                
+                @Override
+                public void onPortingFailed(String errorMessage) {
+                    LogManager.error("ROM porting failed: " + errorMessage);
+                }
+            });
+            
+            // Start porting
+            boolean portingResult = romPorter.startPorting();
+            
+            if (!portingResult) {
+                LogManager.error("Porting failed");
+                
+                // Notify listeners that porting has failed
+                for (PortingListener listener : listeners) {
+                    listener.onPortingFailed("Porting failed");
+                }
+                
+                return false;
+            }
             
             // Create output ROM
             LogManager.info("Creating output ROM");
@@ -180,14 +234,47 @@ public class PortingManager {
     private void analyzeZipRom(File romFile, RomInfo romInfo) {
         LogManager.info("Analyzing ZIP ROM file");
         
-        // TODO: Implement ZIP ROM analysis
-        // 1. Check if it's an OTA package
-        // 2. Look for payload.bin
-        // 3. Extract basic information
-        
+        // Set ROM type
         romInfo.setRomType(RomInfo.RomType.OTA_PACKAGE);
-        romInfo.setAndroidVersion("15"); // Placeholder
-        romInfo.setOneUIVersion("7.0"); // Placeholder
+        
+        try {
+            // Extract build.prop from the ZIP file to get ROM information
+            File tempDir = new File(System.getProperty("java.io.tmpdir"), "oneui_porter_temp");
+            if (!tempDir.exists()) {
+                tempDir.mkdirs();
+            }
+            
+            // Use unzip command to extract build.prop
+            ProcessBuilder pb = new ProcessBuilder(
+                "unzip", "-j", romFile.getAbsolutePath(), "system/build.prop", "-d", tempDir.getAbsolutePath()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            
+            // Wait for the process to complete
+            int exitCode = process.waitFor();
+            
+            // Check if build.prop was extracted
+            File buildPropFile = new File(tempDir, "build.prop");
+            if (buildPropFile.exists()) {
+                // Parse build.prop to get ROM information
+                parseBuildProp(buildPropFile, romInfo);
+            } else {
+                // Set default values
+                romInfo.setAndroidVersion("15");
+                romInfo.setOneUIVersion("7.0");
+            }
+            
+            // Clean up
+            buildPropFile.delete();
+            tempDir.delete();
+        } catch (Exception e) {
+            LogManager.error("Error analyzing ZIP ROM file", e);
+            
+            // Set default values
+            romInfo.setAndroidVersion("15");
+            romInfo.setOneUIVersion("7.0");
+        }
     }
     
     /**
@@ -199,14 +286,147 @@ public class PortingManager {
     private void analyzeTarRom(File romFile, RomInfo romInfo) {
         LogManager.info("Analyzing TAR ROM file");
         
-        // TODO: Implement TAR ROM analysis
-        // 1. Check if it's a Samsung firmware
-        // 2. Look for system.img, vendor.img, etc.
-        // 3. Extract basic information
-        
+        // Set ROM type
         romInfo.setRomType(RomInfo.RomType.SAMSUNG_FIRMWARE);
-        romInfo.setAndroidVersion("15"); // Placeholder
-        romInfo.setOneUIVersion("7.0"); // Placeholder
+        
+        try {
+            // Extract build.prop from the TAR file to get ROM information
+            File tempDir = new File(System.getProperty("java.io.tmpdir"), "oneui_porter_temp");
+            if (!tempDir.exists()) {
+                tempDir.mkdirs();
+            }
+            
+            // Use tar command to extract build.prop
+            ProcessBuilder pb = new ProcessBuilder(
+                "tar", "-xf", romFile.getAbsolutePath(), "-C", tempDir.getAbsolutePath(), "system/build.prop"
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            
+            // Wait for the process to complete
+            int exitCode = process.waitFor();
+            
+            // Check if build.prop was extracted
+            File buildPropFile = new File(tempDir, "system/build.prop");
+            if (buildPropFile.exists()) {
+                // Parse build.prop to get ROM information
+                parseBuildProp(buildPropFile, romInfo);
+            } else {
+                // Set default values
+                romInfo.setAndroidVersion("15");
+                romInfo.setOneUIVersion("7.0");
+            }
+            
+            // Clean up
+            buildPropFile.delete();
+            new File(tempDir, "system").delete();
+            tempDir.delete();
+        } catch (Exception e) {
+            LogManager.error("Error analyzing TAR ROM file", e);
+            
+            // Set default values
+            romInfo.setAndroidVersion("15");
+            romInfo.setOneUIVersion("7.0");
+        }
+    }
+    
+    /**
+     * Parse a build.prop file to get ROM information
+     * 
+     * @param buildPropFile The build.prop file
+     * @param romInfo The ROM information to populate
+     */
+    private void parseBuildProp(File buildPropFile, RomInfo romInfo) {
+        LogManager.info("Parsing build.prop: " + buildPropFile.getAbsolutePath());
+        
+        try {
+            // Load build.prop
+            java.util.Properties props = new java.util.Properties();
+            props.load(new java.io.FileReader(buildPropFile));
+            
+            // Get ROM information
+            String androidVersion = props.getProperty("ro.build.version.release");
+            String securityPatch = props.getProperty("ro.build.version.security_patch");
+            String buildId = props.getProperty("ro.build.id");
+            String deviceModel = props.getProperty("ro.product.model");
+            
+            // Set ROM information
+            if (androidVersion != null) {
+                romInfo.setAndroidVersion(androidVersion);
+            } else {
+                romInfo.setAndroidVersion("15");
+            }
+            
+            // Try to determine OneUI version
+            String oneUIVersion = determineOneUIVersion(props);
+            romInfo.setOneUIVersion(oneUIVersion);
+            
+            if (securityPatch != null) {
+                romInfo.setSecurityPatchLevel(securityPatch);
+            }
+            
+            if (buildId != null) {
+                romInfo.setBuildId(buildId);
+            }
+            
+            if (deviceModel != null) {
+                romInfo.setDeviceModel(deviceModel);
+            }
+            
+            // Add build properties
+            for (String propName : props.stringPropertyNames()) {
+                romInfo.addBuildProp(propName, props.getProperty(propName));
+            }
+        } catch (Exception e) {
+            LogManager.error("Error parsing build.prop", e);
+        }
+    }
+    
+    /**
+     * Determine OneUI version from build properties
+     * 
+     * @param props The build properties
+     * @return The OneUI version
+     */
+    private String determineOneUIVersion(java.util.Properties props) {
+        // Try to find OneUI version from build properties
+        String buildDisplay = props.getProperty("ro.build.display.id");
+        if (buildDisplay != null && buildDisplay.contains("OneUI")) {
+            // Extract OneUI version from build display
+            int index = buildDisplay.indexOf("OneUI");
+            if (index >= 0 && index + 5 < buildDisplay.length()) {
+                String version = buildDisplay.substring(index + 5).trim();
+                if (!version.isEmpty()) {
+                    return version;
+                }
+            }
+        }
+        
+        // Try to determine OneUI version from Android version
+        String androidVersion = props.getProperty("ro.build.version.release");
+        if (androidVersion != null) {
+            switch (androidVersion) {
+                case "15":
+                    return "7.0";
+                case "14":
+                    return "6.0";
+                case "13":
+                    return "5.0";
+                case "12":
+                    return "4.0";
+                case "11":
+                    return "3.0";
+                case "10":
+                    return "2.0";
+                case "9":
+                    return "1.0";
+                default:
+                    return "7.0"; // Default to OneUI 7.0 for unknown Android versions
+            }
+        }
+        
+        // Default to OneUI 7.0
+        return "7.0";
     }
     
     /**
@@ -214,8 +434,9 @@ public class PortingManager {
      * 
      * @param romInfo The ROM information
      * @param extractDir The directory to extract to
+     * @throws IOException If an error occurs
      */
-    private void extractRom(RomInfo romInfo, File extractDir) {
+    private void extractRom(RomInfo romInfo, File extractDir) throws IOException {
         LogManager.info("Extracting ROM: " + romInfo.getFilePath());
         
         // Create the extraction directory
@@ -236,19 +457,24 @@ public class PortingManager {
      * 
      * @param romInfo The ROM information
      * @param extractDir The directory to extract to
+     * @throws IOException If an error occurs
      */
-    private void extractOtaPackage(RomInfo romInfo, File extractDir) {
+    private void extractOtaPackage(RomInfo romInfo, File extractDir) throws IOException {
         LogManager.info("Extracting OTA package");
         
-        // TODO: Implement OTA package extraction
-        // 1. Extract the ZIP file
-        // 2. Find payload.bin
-        // 3. Use payload_dumper to extract partitions
+        File romFile = new File(romInfo.getFilePath());
         
-        // For now, just create placeholder directories
-        new File(extractDir, "system").mkdirs();
-        new File(extractDir, "vendor").mkdirs();
-        new File(extractDir, "product").mkdirs();
+        // Extract partitions from OTA package
+        List<File> partitionFiles = partitionExtractor.extractFromOtaPackage(romFile, extractDir);
+        
+        // Extract files from partitions
+        for (File partitionFile : partitionFiles) {
+            String partitionName = partitionFile.getName().replace(".img", "");
+            File partitionDir = new File(extractDir, partitionName);
+            
+            LogManager.info("Extracting files from partition: " + partitionName);
+            partitionExtractor.extractFilesFromPartition(partitionFile, partitionDir);
+        }
     }
     
     /**
@@ -256,47 +482,24 @@ public class PortingManager {
      * 
      * @param romInfo The ROM information
      * @param extractDir The directory to extract to
+     * @throws IOException If an error occurs
      */
-    private void extractSamsungFirmware(RomInfo romInfo, File extractDir) {
+    private void extractSamsungFirmware(RomInfo romInfo, File extractDir) throws IOException {
         LogManager.info("Extracting Samsung firmware");
         
-        // TODO: Implement Samsung firmware extraction
-        // 1. Extract the TAR file
-        // 2. Find system.img, vendor.img, product.img
-        // 3. Mount and extract the partitions
+        File romFile = new File(romInfo.getFilePath());
         
-        // For now, just create placeholder directories
-        new File(extractDir, "system").mkdirs();
-        new File(extractDir, "vendor").mkdirs();
-        new File(extractDir, "product").mkdirs();
-    }
-    
-    /**
-     * Perform the porting operations
-     * 
-     * @param sourceDir The source ROM directory
-     * @param targetDir The target ROM directory
-     * @param outputDir The output directory
-     * @param options Porting options
-     */
-    private void performPorting(File sourceDir, File targetDir, File outputDir, PortingOptions options) {
-        LogManager.info("Performing porting operations");
+        // Extract partitions from Samsung firmware
+        List<File> partitionFiles = partitionExtractor.extractFromSamsungFirmware(romFile, extractDir);
         
-        // Create the output ROM directory
-        File outputRomDir = new File(outputDir, "output_rom");
-        if (!outputRomDir.exists()) {
-            outputRomDir.mkdirs();
+        // Extract files from partitions
+        for (File partitionFile : partitionFiles) {
+            String partitionName = partitionFile.getName().replace(".img", "");
+            File partitionDir = new File(extractDir, partitionName);
+            
+            LogManager.info("Extracting files from partition: " + partitionName);
+            partitionExtractor.extractFilesFromPartition(partitionFile, partitionDir);
         }
-        
-        // TODO: Implement porting operations
-        // 1. Copy target ROM as base
-        // 2. Apply source ROM modifications based on options
-        // 3. Update build.prop and other configuration files
-        
-        // For now, just create placeholder directories
-        new File(outputRomDir, "system").mkdirs();
-        new File(outputRomDir, "vendor").mkdirs();
-        new File(outputRomDir, "product").mkdirs();
     }
     
     /**
@@ -304,17 +507,35 @@ public class PortingManager {
      * 
      * @param outputDir The output directory
      * @return The output ROM file
+     * @throws IOException If an error occurs
      */
-    private File createOutputRom(File outputDir) {
+    private File createOutputRom(File outputDir) throws IOException {
         LogManager.info("Creating output ROM file");
         
-        // TODO: Implement output ROM creation
-        // 1. Package the output ROM directory
-        // 2. Create a flashable ZIP or TAR file
-        
-        // For now, just create a placeholder file
+        File outputRomDir = new File(outputDir, "output_rom");
         File outputRomFile = new File(outputDir, "ported_rom.zip");
-        return outputRomFile;
+        
+        try {
+            // Create a ZIP file from the output ROM directory
+            ProcessBuilder pb = new ProcessBuilder(
+                "zip", "-r", outputRomFile.getAbsolutePath(), "."
+            );
+            pb.directory(outputRomDir);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            
+            // Wait for the process to complete
+            int exitCode = process.waitFor();
+            LogManager.info("Zip process exit code: " + exitCode);
+            
+            if (exitCode != 0) {
+                throw new IOException("Failed to create output ROM file");
+            }
+            
+            return outputRomFile;
+        } catch (InterruptedException e) {
+            throw new IOException("Zip process interrupted", e);
+        }
     }
     
     /**
@@ -326,66 +547,6 @@ public class PortingManager {
         void onPortingProgress(int progress, String message);
         void onPortingCompleted(File outputRomFile);
         void onPortingFailed(String errorMessage);
-    }
-    
-    /**
-     * Class for porting options
-     */
-    public static class PortingOptions {
-        private boolean portSystemApps = true;
-        private boolean portVendorBlobs = true;
-        private boolean portProductConfig = true;
-        private boolean updateBuildProps = true;
-        private boolean preserveDeviceDrivers = true;
-        private boolean optimizePerformance = false;
-        
-        public boolean isPortSystemApps() {
-            return portSystemApps;
-        }
-        
-        public void setPortSystemApps(boolean portSystemApps) {
-            this.portSystemApps = portSystemApps;
-        }
-        
-        public boolean isPortVendorBlobs() {
-            return portVendorBlobs;
-        }
-        
-        public void setPortVendorBlobs(boolean portVendorBlobs) {
-            this.portVendorBlobs = portVendorBlobs;
-        }
-        
-        public boolean isPortProductConfig() {
-            return portProductConfig;
-        }
-        
-        public void setPortProductConfig(boolean portProductConfig) {
-            this.portProductConfig = portProductConfig;
-        }
-        
-        public boolean isUpdateBuildProps() {
-            return updateBuildProps;
-        }
-        
-        public void setUpdateBuildProps(boolean updateBuildProps) {
-            this.updateBuildProps = updateBuildProps;
-        }
-        
-        public boolean isPreserveDeviceDrivers() {
-            return preserveDeviceDrivers;
-        }
-        
-        public void setPreserveDeviceDrivers(boolean preserveDeviceDrivers) {
-            this.preserveDeviceDrivers = preserveDeviceDrivers;
-        }
-        
-        public boolean isOptimizePerformance() {
-            return optimizePerformance;
-        }
-        
-        public void setOptimizePerformance(boolean optimizePerformance) {
-            this.optimizePerformance = optimizePerformance;
-        }
     }
 }
 

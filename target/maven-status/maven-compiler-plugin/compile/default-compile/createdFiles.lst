@@ -1,0 +1,10 @@
+com/maxregner/oneui/porter/core/model/RomInfo.class
+com/maxregner/oneui/porter/core/PortingManager$PortingListener.class
+com/maxregner/oneui/porter/core/PortingManager$PortingOptions.class
+com/maxregner/oneui/porter/core/PortingManager.class
+com/maxregner/oneui/porter/utils/ExternalToolManager.class
+com/maxregner/oneui/porter/Main.class
+com/maxregner/oneui/porter/core/partitions/PartitionManager.class
+com/maxregner/oneui/porter/gui/MainWindow.class
+com/maxregner/oneui/porter/utils/LogManager.class
+com/maxregner/oneui/porter/core/model/RomInfo$RomType.class
